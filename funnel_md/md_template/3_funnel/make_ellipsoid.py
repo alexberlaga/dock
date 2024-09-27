@@ -237,26 +237,24 @@ if args.toid:
     angles.append("omega")
 with open('plumed.dat', 'w') as f:
     f.write(f'WHOLEMOLECULES ENTITY0={stringlist(np.array(protein_ca_idxs) + 1)}\n')
-    for angle in angles:
+    f.write('FIT_TO_TEMPLATE STRIDE=1 REFERENCE=start.pdb TYPE=OPTIMAL\n')    
+for angle in angles:
         for j in range(1, ligand.top.n_residues - 1):
             f.write(f"{angle}{j}: TORSION ATOMS={stringlist(get_dihedral_idxs(structure, angle, j + prot_n_res, args.toid))}\n")
             all_angles.append(f"{angle}{j}")
     n_ang = len(all_angles)
-    f.write('FIT_TO_TEMPLATE STRIDE=1 REFERENCE=start.pdb TYPE=OPTIMAL\n')
     f.write(f'd1: DISTANCE ATOMS={prot_anchor},{lig_anchor}\n')
     f.write(f'lig: COM ATOMS={stringlist(np.array(lig_heavy_idxs) + 1)}\n')
     f.write(f'fps: FUNNEL_PS LIGAND=lig REFERENCE=start.pdb ANCHOR={prot_anchor} POINTS={stringlist(lig_com)},{stringlist(bn)}\n')
     f.write('rmsd: RMSD REFERENCE=start.pdb TYPE=OPTIMAL\n')
-    f.write(f'FUNNEL ARG=fps.lp,fps.ld ZCC={cone_length} ALPHA={round(alpha, 3)} RCYL={RCYL} MINS={round(MINS, 3)} MAXS={round(MAXS, 3)} KAPPA={KAPPA} NBINS={NBIN} NBINZ={NBIN} FILE=BIAS\n')
     sig_list = [str(SIGMA_lp)] + [str(SIGMA_ld)] + [str(SIGMA_d)]*(n_ang)
     npi_list = ['-pi']*n_ang
     pi_list = ['pi']*n_ang
+    f.write(f'mag: MATHEVAL ARG=fps.lp,fps.ld FUNC=0.25*x*x+{round(1 / (interaction_dist ** 2), 3)}*y*y PERIODIC=NO\n')
     f.write(f'PBMETAD ARG=fps.lp,fps.ld,{stringlist(all_angles)} SIGMA={stringlist(sig_list)} HEIGHT={HEIGHT} PACE=500 TEMP=300 BIASFACTOR={BIASFACTOR} LABEL=metad GRID_MIN={round(MINS, 3)},0,{stringlist(npi_list)} GRID_MAX={round(MAXS, 3)},{round(lig_diameter, 3) + 2*epsilon},{stringlist(pi_list)}\n')
     f.write(f'LOWER_WALLS ARG=fps.lp AT={round(MINFS, 3)} KAPPA={10*KAPPA} EXP=2 OFFSET=0 LABEL=lwall\n')
     f.write(f'UPPER_WALLS ARG=rmsd AT={round(RMSD_MAX, 3)} KAPPA={10*KAPPA} EXP=2 OFFSET=0 LABEL=uwall-rmsd\n')
-    f.write(f'UPPER_WALLS ARG=fps.lp AT={round(MAXFS, 3)} KAPPA={10*KAPPA} EXP=2 OFFSET=0 LABEL=uwall\n')
-    f.write(f'UPPER_WALLS ARG=fps.ld AT={str(round(lig_diameter, 3))[:5]} KAPPA={10*KAPPA} EXP=2 OFFSET=0 LABEL=uwall-ld\n')
-    f.write(f'UPPER_WALLS ARG=d1 AT={round(MAXFD, 3)} KAPPA={10*KAPPA} EXP=2 OFFSET=0 LABEL=distwall\n')   
+    f.write(f'UPPER_WALLS ARG=mag AT=1 KAPPA={KAPPA} EXP=2 OFFSET=0 LABEL=magwall\n')
     f.write('PRINT STRIDE=500 ARG=* FILE=COLVAR\n')
 
 with open('plumed_reweight.dat', 'w') as f:
@@ -267,15 +265,12 @@ with open('plumed_reweight.dat', 'w') as f:
     for angle in angles:
         for j in range(1, ligand.top.n_residues - 1):
             f.write(f"{angle}{j}: READ FILE=COLVAR VALUES={angle}{j} IGNORE_TIME IGNORE_FORCES EVERY=1\n")
-    f.write(f'FUNNEL ARG=fps.lp,fps.ld ZCC={cone_length} ALPHA={round(alpha, 3)} RCYL={RCYL} MINS={round(MINS, 3)} MAXS={round(MAXS, 3)} KAPPA={KAPPA} NBINS={NBIN} NBINZ={NBIN} FILE=bias_reweight.dat\n')
-    
+    f.write(f'mag: MATHEVAL ARG=fps.lp,fps.ld FUNC=0.25*x*x+{round(1 / (interaction_dist ** 2), 3)}*y*y PERIODIC=NO\n')
     f.write(f'PBMETAD ARG=fps.lp,fps.ld,{stringlist(all_angles)} SIGMA={stringlist(sig_list)} HEIGHT=0 PACE=500000 TEMP=300 BIASFACTOR={BIASFACTOR} LABEL=metad GRID_MIN={round(MINS, 3)},0,{stringlist(npi_list)} GRID_MAX={round(MAXS, 3)},{round(lig_diameter * 1.5, 3)},{stringlist(pi_list)}\n')
-    f.write(f'LOWER_WALLS ARG=fps.lp AT={round(MINFS, 3)} KAPPA={10*KAPPA} EXP=2 OFFSET=0 LABEL=lwall\n')
-    f.write(f'UPPER_WALLS ARG=rmsd AT={round(RMSD_MAX, 3)} KAPPA={10*KAPPA} EXP=2 OFFSET=0 LABEL=uwall-rmsd\n')
-    f.write(f'UPPER_WALLS ARG=fps.lp AT={round(MAXFS, 3)} KAPPA={10*KAPPA} EXP=2 OFFSET=0 LABEL=uwall\n')
-    f.write(f'UPPER_WALLS ARG=fps.ld AT={str(round(lig_diameter, 3))[:5]} KAPPA={10*KAPPA} EXP=2 OFFSET=0 LABEL=uwall-ld\n')
-    f.write(f'UPPER_WALLS ARG=d1 AT={round(MAXFD, 3)} KAPPA={10*KAPPA} EXP=2 OFFSET=0 LABEL=distwall\n')   
-    f.write(f'PRINT STRIDE=1 ARG=d1,fps.lp,fps.ld,{stringlist(all_angles)},rmsd,metad.bias FILE=colvar_reweight.dat\n')
+    f.write(f'LOWER_WALLS ARG=fps.lp AT={round(MINFS, 3)} KAPPA={KAPPA} EXP=2 OFFSET=0 LABEL=lwall\n')
+    f.write(f'UPPER_WALLS ARG=rmsd AT={round(RMSD_MAX, 3)} KAPPA={KAPPA} EXP=2 OFFSET=0 LABEL=uwall-rmsd\n')
+    f.write(f'UPPER_WALLS ARG=mag AT=1 KAPPA={KAPPA} EXP=2 OFFSET=0 LABEL=magwall\n')
+    f.write(f'PRINT STRIDE=1 ARG=* FILE=colvar_reweight.dat\n')
     
 with open("params.json", "w") as outfile: 
     json.dump(PARAMETERS, outfile)
